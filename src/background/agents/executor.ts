@@ -133,12 +133,32 @@ export class Executor {
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           console.error('[Executor] Failed to get DOM state:', errorMsg);
-          // Try to continue with minimal state
+
+          // Get tab info to determine if we're on a restricted page
+          let tabUrl = 'unknown';
+          let tabTitle = 'Unknown page';
+          try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab) {
+              tabUrl = tab.url || 'unknown';
+              tabTitle = tab.title || 'Unknown';
+            }
+          } catch {}
+
+          // Provide context about why DOM state failed
+          const isRestricted = tabUrl.startsWith('chrome://') ||
+                               tabUrl.startsWith('chrome-extension://') ||
+                               tabUrl.startsWith('about:') ||
+                               tabUrl === 'chrome://newtab/' ||
+                               tabUrl === 'unknown';
+
           domState = {
-            url: 'unknown',
-            title: 'Error getting page state',
+            url: tabUrl,
+            title: tabTitle,
             interactiveElements: [],
-            pageText: '',
+            pageText: isRestricted
+              ? 'RESTRICTED PAGE: Cannot interact with this page. Use "navigate" action to go to a website first (e.g., navigate to https://google.com).'
+              : 'Page content not available. Try navigating to a different page.',
           };
         }
 

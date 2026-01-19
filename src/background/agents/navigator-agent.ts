@@ -57,7 +57,13 @@ GUIDELINES:
 - If you can't find an expected element, try scrolling or waiting
 - When extracting content, target specific containers, not the whole body
 - Call "done" with the result when you have achieved the task goal
-- Call "fail" only when you're certain the task cannot be completed`;
+- Call "fail" only when you're certain the task cannot be completed
+
+IMPORTANT - RESTRICTED PAGES:
+- If the page text says "RESTRICTED PAGE" or URL starts with "chrome://", you MUST use "navigate" action first
+- New tab pages, extension pages, and browser settings cannot be interacted with
+- Always navigate to a real website (like https://google.com) before trying other actions
+- If there are no interactive elements and URL is restricted, use navigate action`;
 
   protected outputSchema = `{
   "current_state": {
