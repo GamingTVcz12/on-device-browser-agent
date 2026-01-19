@@ -10,6 +10,7 @@
  */
 
 import { executor } from './agents/executor';
+import { visionExecutor } from './agents/vision-executor';
 import { visionEngine } from './vision-engine';
 import { POPUP_PORT_NAME, POST_NAVIGATION_DELAY, PAGE_LOAD_TIMEOUT } from '../shared/constants';
 import type { DOMState, ActionResult, ExecutorEvent, BackgroundMessage } from '../shared/types';
@@ -66,28 +67,46 @@ async function handleStartTask(
 
   currentTabId = tab.id;
 
-  // Set up event forwarding to popup
-  const unsubscribe = executor.onEvent((event: ExecutorEvent) => {
+  // Event handler for forwarding to popup
+  const handleEvent = (event: ExecutorEvent) => {
     try {
       port.postMessage({ type: 'EXECUTOR_EVENT', event });
     } catch (e) {
       console.error('[Background] Failed to send event to popup:', e);
     }
-  });
+  };
+
+  // Set up event forwarding based on mode
+  const unsubscribe = visionMode
+    ? visionExecutor.onEvent(handleEvent)
+    : executor.onEvent(handleEvent);
 
   try {
-    // Vision mode is not yet fully implemented in executor
-    // For now, log it and use standard mode
-    if (visionMode) {
-      console.log('[Background] Vision mode requested - using screenshot-based navigation');
-      // TODO: Pass visionMode to executor when VisionExecutor is implemented
-    }
+    let result: string;
 
-    const result = await executor.executeTask(
-      task,
-      () => getDOMState(currentTabId!),
-      (actionType, params) => executeAction(currentTabId!, actionType, params)
-    );
+    if (visionMode) {
+      console.log('[Background] Vision mode - using screenshot-based navigation');
+
+      // Use VisionExecutor for screenshot-based navigation
+      result = await visionExecutor.executeTask(
+        task,
+        async () => {
+          const tab = await chrome.tabs.get(currentTabId!);
+          return { url: tab.url || 'unknown', title: tab.title || 'Unknown' };
+        },
+        (actionType, params) => executeAction(currentTabId!, actionType, params),
+        currentTabId!
+      );
+    } else {
+      console.log('[Background] Standard mode - using DOM-based navigation');
+
+      // Use standard executor for DOM-based navigation
+      result = await executor.executeTask(
+        task,
+        () => getDOMState(currentTabId!),
+        (actionType, params) => executeAction(currentTabId!, actionType, params)
+      );
+    }
 
     port.postMessage({ type: 'TASK_RESULT', result });
   } catch (error) {
