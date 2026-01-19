@@ -43,30 +43,53 @@ export function App(): React.ReactElement {
 
   // Connect to background service worker
   useEffect(() => {
-    const newPort = chrome.runtime.connect({ name: POPUP_PORT_NAME });
-    setPort(newPort);
+    let currentPort: chrome.runtime.Port | null = null;
 
-    newPort.onMessage.addListener((message) => {
-      console.log('[Popup] Received message:', message);
+    const connect = () => {
+      try {
+        console.log('[Popup] Connecting to background service...');
+        const newPort = chrome.runtime.connect({ name: POPUP_PORT_NAME });
+        currentPort = newPort;
 
-      if (message.type === 'EXECUTOR_EVENT') {
-        handleExecutorEvent(message.event as ExecutorEvent);
-      } else if (message.type === 'TASK_RESULT') {
-        setResult(message.result);
-        setState('complete');
-      } else if (message.type === 'ERROR') {
-        setError(message.error);
+        newPort.onMessage.addListener((message) => {
+          console.log('[Popup] Received message:', message);
+
+          if (message.type === 'EXECUTOR_EVENT') {
+            handleExecutorEvent(message.event as ExecutorEvent);
+          } else if (message.type === 'TASK_RESULT') {
+            setResult(message.result);
+            setState('complete');
+          } else if (message.type === 'ERROR') {
+            setError(message.error);
+            setState('error');
+          }
+        });
+
+        newPort.onDisconnect.addListener(() => {
+          console.log('[Popup] Port disconnected');
+          const lastError = chrome.runtime.lastError;
+          if (lastError) {
+            console.error('[Popup] Disconnect error:', lastError.message);
+          }
+          setPort(null);
+          currentPort = null;
+        });
+
+        setPort(newPort);
+        console.log('[Popup] Connected successfully');
+      } catch (err) {
+        console.error('[Popup] Failed to connect:', err);
+        setError('Failed to connect to background service. Try reloading the extension.');
         setState('error');
       }
-    });
+    };
 
-    newPort.onDisconnect.addListener(() => {
-      console.log('[Popup] Port disconnected');
-      setPort(null);
-    });
+    connect();
 
     return () => {
-      newPort.disconnect();
+      if (currentPort) {
+        currentPort.disconnect();
+      }
     };
   }, []);
 
@@ -180,10 +203,48 @@ export function App(): React.ReactElement {
   // Submit a new task
   const handleSubmitTask = useCallback(
     (task: string, visionMode: boolean = false) => {
+      // Try to reconnect if port is disconnected
       if (!port) {
-        setError('Not connected to background service');
-        setState('error');
-        return;
+        console.log('[Popup] Port disconnected, attempting to reconnect...');
+        try {
+          const newPort = chrome.runtime.connect({ name: POPUP_PORT_NAME });
+
+          newPort.onMessage.addListener((message) => {
+            console.log('[Popup] Received message:', message);
+            if (message.type === 'EXECUTOR_EVENT') {
+              handleExecutorEvent(message.event as ExecutorEvent);
+            } else if (message.type === 'TASK_RESULT') {
+              setResult(message.result);
+              setState('complete');
+            } else if (message.type === 'ERROR') {
+              setError(message.error);
+              setState('error');
+            }
+          });
+
+          newPort.onDisconnect.addListener(() => {
+            console.log('[Popup] Port disconnected');
+            setPort(null);
+          });
+
+          setPort(newPort);
+
+          // Reset state and send task
+          setState('loading');
+          setModelProgress(0);
+          setPlan([]);
+          setSteps([]);
+          setResult(null);
+          setError(null);
+
+          newPort.postMessage({ type: 'START_TASK', payload: { task, visionMode } });
+          return;
+        } catch (err) {
+          console.error('[Popup] Reconnection failed:', err);
+          setError('Failed to connect to background service. Try closing and reopening the popup.');
+          setState('error');
+          return;
+        }
       }
 
       // Reset state
@@ -197,7 +258,7 @@ export function App(): React.ReactElement {
       // Send task to background
       port.postMessage({ type: 'START_TASK', payload: { task, visionMode } });
     },
-    [port]
+    [port, handleExecutorEvent]
   );
 
   // Reset to initial state
