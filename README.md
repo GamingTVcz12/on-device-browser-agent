@@ -4,7 +4,8 @@ A Chrome extension that uses WebLLM to run AI-powered web automation entirely on
 
 ## Demo
 
-https://github.com/RunanywhereAI/on-device-browser-agent/raw/master/assets/demo.mp4
+https://github.com/user-attachments/assets/898cc5c2-db77-4067-96e6-233c5da2bae5
+
 
 ## Features
 
