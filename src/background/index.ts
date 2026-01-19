@@ -10,6 +10,7 @@
  */
 
 import { executor } from './agents/executor';
+import { visionEngine } from './vision-engine';
 import { POPUP_PORT_NAME, POST_NAVIGATION_DELAY, PAGE_LOAD_TIMEOUT } from '../shared/constants';
 import type { DOMState, ActionResult, ExecutorEvent, BackgroundMessage } from '../shared/types';
 
@@ -34,7 +35,7 @@ chrome.runtime.onConnect.addListener((port) => {
     console.log('[Background] Received message:', message.type);
 
     if (message.type === 'START_TASK') {
-      await handleStartTask(message.payload.task, port);
+      await handleStartTask(message.payload.task, port, message.payload.visionMode);
     } else if (message.type === 'CANCEL_TASK') {
       executor.cancel();
     }
@@ -50,7 +51,11 @@ chrome.runtime.onConnect.addListener((port) => {
 // Task Execution
 // ============================================================================
 
-async function handleStartTask(task: string, port: chrome.runtime.Port): Promise<void> {
+async function handleStartTask(
+  task: string,
+  port: chrome.runtime.Port,
+  visionMode: boolean = false
+): Promise<void> {
   // Get the active tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -71,6 +76,13 @@ async function handleStartTask(task: string, port: chrome.runtime.Port): Promise
   });
 
   try {
+    // Vision mode is not yet fully implemented in executor
+    // For now, log it and use standard mode
+    if (visionMode) {
+      console.log('[Background] Vision mode requested - using screenshot-based navigation');
+      // TODO: Pass visionMode to executor when VisionExecutor is implemented
+    }
+
     const result = await executor.executeTask(
       task,
       () => getDOMState(currentTabId!),
@@ -264,6 +276,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('[Background] Content script ready in tab:', sender.tab?.id);
     sendResponse({ ok: true });
   } else if (message.type === 'PING') {
+    sendResponse({ ok: true });
+  } else if (message.type === 'VLM_PROGRESS') {
+    // Forward VLM progress to vision engine
+    visionEngine.handleProgressUpdate(message.progress);
     sendResponse({ ok: true });
   }
   return true;

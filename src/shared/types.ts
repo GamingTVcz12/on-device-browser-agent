@@ -88,6 +88,25 @@ export interface InteractiveElement {
 }
 
 // ============================================================================
+// Vision State Types
+// ============================================================================
+
+/**
+ * Page state for vision-based navigation
+ */
+export interface VisionState {
+  url: string;
+  title: string;
+  screenshot: string; // base64 image data URL
+  visionAnalysis: string; // VLM's description of the page
+}
+
+/**
+ * VLM model size options
+ */
+export type VLMModelSize = 'tiny' | 'small' | 'base';
+
+// ============================================================================
 // Agent Context Types
 // ============================================================================
 
@@ -115,7 +134,7 @@ export interface AgentStep {
 
 export interface StartTaskMessage {
   type: 'START_TASK';
-  payload: { task: string };
+  payload: { task: string; visionMode?: boolean };
 }
 
 export interface CancelTaskMessage {
@@ -150,11 +169,16 @@ export type ExecutorEvent =
   | { type: 'INIT_START' }
   | { type: 'INIT_PROGRESS'; progress: number }
   | { type: 'INIT_COMPLETE' }
+  | { type: 'VLM_INIT_START' }
+  | { type: 'VLM_INIT_PROGRESS'; progress: number }
+  | { type: 'VLM_INIT_COMPLETE' }
   | { type: 'PLAN_START' }
   | { type: 'PLAN_COMPLETE'; plan: string[] }
   | { type: 'STEP_START'; stepNumber: number }
   | { type: 'STEP_ACTION'; action: string; params: Record<string, string> }
   | { type: 'STEP_RESULT'; success: boolean; data?: string }
+  | { type: 'SCREENSHOT_CAPTURED' }
+  | { type: 'VISION_ANALYSIS_COMPLETE' }
   | { type: 'TASK_COMPLETE'; result: string }
   | { type: 'TASK_FAILED'; error: string }
   | { type: 'REPLAN'; reason: string };

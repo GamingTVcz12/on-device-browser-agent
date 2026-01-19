@@ -434,3 +434,44 @@ body {
 .error-view button:hover {
   background: #e8e8e8;
 }
+
+/* ============================================================================
+   Vision Mode Toggle
+   ============================================================================ */
+
+.vision-toggle {
+  padding: 10px 12px;
+  background: #f8f9ff;
+  border: 1px solid #e0e0f0;
+  border-radius: 8px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #667eea;
+  cursor: pointer;
+}
+
+.toggle-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+}
+
+.vision-hint {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e0e0f0;
+  font-size: 11px;
+  color: #666;
+  line-height: 1.4;
+}

@@ -88,6 +88,27 @@ export function App(): React.ReactElement {
         setModelProgress(1);
         break;
 
+      case 'VLM_INIT_START':
+        // VLM loading starts after LLM
+        break;
+
+      case 'VLM_INIT_PROGRESS':
+        // Show VLM progress (offset from LLM progress)
+        setModelProgress(0.5 + event.progress * 0.5);
+        break;
+
+      case 'VLM_INIT_COMPLETE':
+        setModelProgress(1);
+        break;
+
+      case 'SCREENSHOT_CAPTURED':
+        // Could show visual feedback
+        break;
+
+      case 'VISION_ANALYSIS_COMPLETE':
+        // Could show visual feedback
+        break;
+
       case 'PLAN_START':
         setState('planning');
         break;
@@ -158,7 +179,7 @@ export function App(): React.ReactElement {
 
   // Submit a new task
   const handleSubmitTask = useCallback(
-    (task: string) => {
+    (task: string, visionMode: boolean = false) => {
       if (!port) {
         setError('Not connected to background service');
         setState('error');
@@ -174,7 +195,7 @@ export function App(): React.ReactElement {
       setError(null);
 
       // Send task to background
-      port.postMessage({ type: 'START_TASK', payload: { task } });
+      port.postMessage({ type: 'START_TASK', payload: { task, visionMode } });
     },
     [port]
   );

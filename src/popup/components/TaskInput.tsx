@@ -7,7 +7,8 @@
 import React, { useState, useCallback } from 'react';
 
 interface TaskInputProps {
-  onSubmit: (task: string) => void;
+  onSubmit: (task: string, visionMode: boolean) => void;
+  visionModeSupported?: boolean;
 }
 
 const EXAMPLE_TASKS = [
@@ -16,17 +17,18 @@ const EXAMPLE_TASKS = [
   'Go to example.com and tell me what\'s there',
 ];
 
-export function TaskInput({ onSubmit }: TaskInputProps): React.ReactElement {
+export function TaskInput({ onSubmit, visionModeSupported = true }: TaskInputProps): React.ReactElement {
   const [task, setTask] = useState('');
+  const [visionMode, setVisionMode] = useState(false);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
       if (task.trim()) {
-        onSubmit(task.trim());
+        onSubmit(task.trim(), visionMode);
       }
     },
-    [task, onSubmit]
+    [task, visionMode, onSubmit]
   );
 
   const handleExampleClick = useCallback((example: string) => {
@@ -41,6 +43,27 @@ export function TaskInput({ onSubmit }: TaskInputProps): React.ReactElement {
         placeholder="Describe what you want to automate...&#10;&#10;Example: Search for 'WebGPU' on Wikipedia and extract the first paragraph"
         autoFocus
       />
+
+      {visionModeSupported && (
+        <div className="vision-toggle">
+          <label className="toggle-label">
+            <input
+              type="checkbox"
+              checked={visionMode}
+              onChange={(e) => setVisionMode(e.target.checked)}
+            />
+            <span className="toggle-text">
+              Vision Mode (use screenshots)
+            </span>
+          </label>
+          {visionMode && (
+            <div className="vision-hint">
+              Uses VLM to analyze page screenshots instead of DOM parsing.
+              More accurate but slower.
+            </div>
+          )}
+        </div>
+      )}
 
       <button type="submit" disabled={!task.trim()}>
         Run Task

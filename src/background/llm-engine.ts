@@ -1,16 +1,11 @@
 /**
  * WebLLM Engine Manager
  *
- * Manages the lifecycle of the WebLLM engine for on-device inference.
- * Uses WebGPU for acceleration in Chrome 124+.
+ * Manages the lifecycle of the WebLLM engine via an offscreen document.
+ * The offscreen document has full web API access for model downloads.
  */
 
-import {
-  CreateExtensionServiceWorkerMLCEngine,
-  MLCEngine,
-  ChatCompletionMessageParam,
-  InitProgressReport,
-} from '@mlc-ai/web-llm';
+import type { ChatCompletionMessageParam } from '@mlc-ai/web-llm';
 import { DEFAULT_MODEL, FALLBACK_MODELS } from '../shared/constants';
 
 // ============================================================================
@@ -18,11 +13,11 @@ import { DEFAULT_MODEL, FALLBACK_MODELS } from '../shared/constants';
 // ============================================================================
 
 interface LLMEngineState {
-  engine: MLCEngine | null;
   isLoading: boolean;
   loadProgress: number;
   currentModel: string | null;
   error: string | null;
+  ready: boolean;
 }
 
 interface ChatOptions {
@@ -33,33 +28,77 @@ interface ChatOptions {
 type ProgressCallback = (progress: number) => void;
 
 // ============================================================================
+// Offscreen Document Management
+// ============================================================================
+
+let creatingOffscreen: Promise<void> | null = null;
+
+async function ensureOffscreenDocument(): Promise<void> {
+  const offscreenUrl = chrome.runtime.getURL('src/offscreen/offscreen.html');
+
+  // Check if already exists
+  // @ts-expect-error - getContexts is available in Chrome 116+
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [offscreenUrl],
+  });
+
+  if (existingContexts.length > 0) {
+    return;
+  }
+
+  // Create if not exists
+  if (creatingOffscreen) {
+    await creatingOffscreen;
+    return;
+  }
+
+  creatingOffscreen = chrome.offscreen.createDocument({
+    url: offscreenUrl,
+    reasons: [chrome.offscreen.Reason.WORKERS],
+    justification: 'WebLLM requires web APIs for model loading and inference',
+  });
+
+  await creatingOffscreen;
+  creatingOffscreen = null;
+  console.log('[LLM Engine] Offscreen document created');
+}
+
+// ============================================================================
 // LLM Engine Manager (Singleton)
 // ============================================================================
 
 class LLMEngineManager {
   private state: LLMEngineState = {
-    engine: null,
     isLoading: false,
     loadProgress: 0,
     currentModel: null,
     error: null,
+    ready: false,
   };
 
   private progressCallbacks: Set<ProgressCallback> = new Set();
   private initializationPromise: Promise<void> | null = null;
 
+  constructor() {
+    // Listen for progress updates from offscreen document
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.type === 'LLM_PROGRESS') {
+        this.state.loadProgress = message.progress;
+        this.notifyProgress(message.progress);
+      }
+    });
+  }
+
   /**
    * Initialize the WebLLM engine with the specified model
-   * Uses cached model if available, otherwise downloads
    */
   async initialize(modelId: string = DEFAULT_MODEL): Promise<void> {
-    // Return existing promise if already initializing
     if (this.initializationPromise && this.state.currentModel === modelId) {
       return this.initializationPromise;
     }
 
-    // Already loaded with same model
-    if (this.state.engine && this.state.currentModel === modelId) {
+    if (this.state.ready && this.state.currentModel === modelId) {
       return;
     }
 
@@ -71,36 +110,32 @@ class LLMEngineManager {
     this.state.isLoading = true;
     this.state.error = null;
     this.state.loadProgress = 0;
+    this.state.ready = false;
 
-    // Check for WebGPU support before attempting to load model
-    // WebGPU is required for efficient on-device LLM inference
-    if (typeof navigator === 'undefined' || !navigator.gpu) {
-      const error = new Error(
-        'WebGPU not supported. This extension requires Chrome 124+ with a WebGPU-capable GPU. ' +
-        'Check chrome://gpu to verify WebGPU support.'
-      );
-      this.state.error = error.message;
-      this.state.isLoading = false;
-      throw error;
-    }
-
-    const modelsToTry = [modelId, ...FALLBACK_MODELS.filter(m => m !== modelId)];
+    const modelsToTry = [modelId, ...FALLBACK_MODELS.filter((m) => m !== modelId)];
 
     for (const model of modelsToTry) {
       try {
         console.log(`[LLM Engine] Initializing model: ${model}`);
 
-        this.state.engine = await CreateExtensionServiceWorkerMLCEngine(model, {
-          initProgressCallback: (report: InitProgressReport) => {
-            this.state.loadProgress = report.progress;
-            this.notifyProgress(report.progress);
-            console.log(`[LLM Engine] Loading: ${Math.round(report.progress * 100)}%`);
-          },
+        // Ensure offscreen document exists
+        await ensureOffscreenDocument();
+        console.log('[LLM Engine] Offscreen document ready');
+
+        // Send init request to offscreen document
+        const response = await chrome.runtime.sendMessage({
+          type: 'INIT_LLM',
+          modelId: model,
         });
+
+        if (!response.success) {
+          throw new Error(response.error || 'Unknown error');
+        }
 
         this.state.currentModel = model;
         this.state.isLoading = false;
         this.state.loadProgress = 1;
+        this.state.ready = true;
         this.notifyProgress(1);
 
         console.log(`[LLM Engine] Successfully loaded: ${model}`);
@@ -109,12 +144,10 @@ class LLMEngineManager {
         console.error(`[LLM Engine] Failed to load ${model}:`, error);
 
         if (model === modelsToTry[modelsToTry.length - 1]) {
-          // Last model, throw error
           this.state.error = error instanceof Error ? error.message : String(error);
           this.state.isLoading = false;
           throw error;
         }
-        // Try next model
         console.log(`[LLM Engine] Trying fallback model...`);
       }
     }
@@ -122,61 +155,40 @@ class LLMEngineManager {
 
   /**
    * Send a chat completion request to the LLM
-   * Returns the complete response as a string
    */
   async chat(
     messages: ChatCompletionMessageParam[],
     options: ChatOptions = {}
   ): Promise<string> {
-    if (!this.state.engine) {
+    if (!this.state.ready) {
       throw new Error('LLM engine not initialized. Call initialize() first.');
     }
 
-    const response = await this.state.engine.chat.completions.create({
+    const response = await chrome.runtime.sendMessage({
+      type: 'LLM_CHAT',
       messages,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 2048,
-      stream: false,
+      options,
     });
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error('Empty response from LLM');
+    if (!response.success) {
+      throw new Error(response.error || 'Chat failed');
     }
 
-    return content;
+    return response.content;
   }
 
   /**
-   * Send a streaming chat completion request
-   * Calls onChunk for each token, returns full response
+   * Send a streaming chat completion request (falls back to non-streaming)
    */
   async chatStream(
     messages: ChatCompletionMessageParam[],
     onChunk: (chunk: string) => void,
     options: ChatOptions = {}
   ): Promise<string> {
-    if (!this.state.engine) {
-      throw new Error('LLM engine not initialized. Call initialize() first.');
-    }
-
-    const stream = await this.state.engine.chat.completions.create({
-      messages,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 2048,
-      stream: true,
-    });
-
-    let fullResponse = '';
-    for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content ?? '';
-      fullResponse += content;
-      if (content) {
-        onChunk(content);
-      }
-    }
-
-    return fullResponse;
+    // For now, use non-streaming and return all at once
+    const content = await this.chat(messages, options);
+    onChunk(content);
+    return content;
   }
 
   /**
@@ -190,12 +202,11 @@ class LLMEngineManager {
    * Check if the engine is ready for inference
    */
   isReady(): boolean {
-    return this.state.engine !== null && !this.state.isLoading;
+    return this.state.ready && !this.state.isLoading;
   }
 
   /**
    * Subscribe to progress updates during model loading
-   * Returns unsubscribe function
    */
   onProgress(callback: ProgressCallback): () => void {
     this.progressCallbacks.add(callback);
@@ -203,7 +214,7 @@ class LLMEngineManager {
   }
 
   private notifyProgress(progress: number): void {
-    this.progressCallbacks.forEach(cb => {
+    this.progressCallbacks.forEach((cb) => {
       try {
         cb(progress);
       } catch (e) {
@@ -213,19 +224,15 @@ class LLMEngineManager {
   }
 
   /**
-   * Reset the engine state (for testing or error recovery)
+   * Reset the engine state
    */
   async reset(): Promise<void> {
-    if (this.state.engine) {
-      // WebLLM doesn't have a dispose method, just clear reference
-      this.state.engine = null;
-    }
     this.state = {
-      engine: null,
       isLoading: false,
       loadProgress: 0,
       currentModel: null,
       error: null,
+      ready: false,
     };
     this.initializationPromise = null;
   }

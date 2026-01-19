@@ -64,7 +64,7 @@ export async function executeAction(
  * Click an element by selector
  */
 async function executeClick(selector: string): Promise<ActionResult> {
-  const element = document.querySelector(selector);
+  const element = resolveSelector(selector);
 
   if (!element) {
     return { success: false, error: `Element not found: ${selector}` };
@@ -114,7 +114,7 @@ async function executeClick(selector: string): Promise<ActionResult> {
  * Type text into an input element
  */
 async function executeType(selector: string, text: string): Promise<ActionResult> {
-  const element = document.querySelector(selector);
+  const element = resolveSelector(selector);
 
   if (!element) {
     return { success: false, error: `Element not found: ${selector}` };
@@ -192,7 +192,7 @@ async function executeExtract(selector: string): Promise<ActionResult> {
     return { success: true, data: text.trim().slice(0, 5000) };
   }
 
-  const element = document.querySelector(selector);
+  const element = resolveSelector(selector);
 
   if (!element) {
     return { success: false, error: `Element not found: ${selector}` };
@@ -239,7 +239,7 @@ async function executeWait(
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeout) {
-    const element = document.querySelector(selector);
+    const element = resolveSelector(selector);
     if (element) {
       return { success: true, data: `Found element: ${selector}` };
     }
@@ -280,4 +280,181 @@ function generateSelectorForElement(element: HTMLElement): string {
   }
 
   return element.tagName.toLowerCase();
+}
+
+/**
+ * Resolve a selector to an element
+ * Supports semantic selectors for vision-based navigation:
+ * - text:Label - Find element by visible text
+ * - input:placeholder - Find input by placeholder/label
+ * - link:text - Find link by text content
+ * - button:text - Find button by text content
+ * - Regular CSS selectors
+ */
+function resolveSelector(selector: string): Element | null {
+  if (!selector) return null;
+
+  // Handle semantic selectors
+  if (selector.startsWith('text:')) {
+    const searchText = selector.slice(5).toLowerCase().trim();
+    return findElementByText(searchText);
+  }
+
+  if (selector.startsWith('input:')) {
+    const searchText = selector.slice(6).toLowerCase().trim();
+    return findInputByLabel(searchText);
+  }
+
+  if (selector.startsWith('link:')) {
+    const searchText = selector.slice(5).toLowerCase().trim();
+    return findLinkByText(searchText);
+  }
+
+  if (selector.startsWith('button:')) {
+    const searchText = selector.slice(7).toLowerCase().trim();
+    return findButtonByText(searchText);
+  }
+
+  // Regular CSS selector
+  try {
+    return document.querySelector(selector);
+  } catch {
+    // Invalid selector, try as text search
+    return findElementByText(selector.toLowerCase());
+  }
+}
+
+/**
+ * Find clickable element by visible text
+ */
+function findElementByText(searchText: string): Element | null {
+  const clickableSelectors = [
+    'button',
+    'a',
+    '[role="button"]',
+    '[role="link"]',
+    'input[type="submit"]',
+    'input[type="button"]',
+    '[onclick]',
+    '[tabindex]:not([tabindex="-1"])',
+  ];
+
+  for (const sel of clickableSelectors) {
+    const elements = document.querySelectorAll(sel);
+    for (const el of elements) {
+      const text = (el as HTMLElement).innerText?.toLowerCase() || '';
+      const ariaLabel = el.getAttribute('aria-label')?.toLowerCase() || '';
+      const title = el.getAttribute('title')?.toLowerCase() || '';
+      const value = (el as HTMLInputElement).value?.toLowerCase() || '';
+
+      if (
+        text.includes(searchText) ||
+        ariaLabel.includes(searchText) ||
+        title.includes(searchText) ||
+        value.includes(searchText)
+      ) {
+        return el;
+      }
+    }
+  }
+
+  // Fallback: any element with matching text
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const el = node as HTMLElement;
+    if (el.innerText?.toLowerCase().includes(searchText)) {
+      // Return the most specific clickable parent or the element itself
+      const clickable = el.closest('button, a, [role="button"], [onclick]');
+      return clickable || el;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find input element by placeholder, label, or aria-label
+ */
+function findInputByLabel(searchText: string): Element | null {
+  const inputs = document.querySelectorAll('input, textarea, select');
+
+  for (const input of inputs) {
+    const placeholder = input.getAttribute('placeholder')?.toLowerCase() || '';
+    const ariaLabel = input.getAttribute('aria-label')?.toLowerCase() || '';
+    const name = input.getAttribute('name')?.toLowerCase() || '';
+    const id = input.id?.toLowerCase() || '';
+
+    if (
+      placeholder.includes(searchText) ||
+      ariaLabel.includes(searchText) ||
+      name.includes(searchText) ||
+      id.includes(searchText)
+    ) {
+      return input;
+    }
+
+    // Check for associated label
+    if (input.id) {
+      const label = document.querySelector(`label[for="${input.id}"]`);
+      if (label?.textContent?.toLowerCase().includes(searchText)) {
+        return input;
+      }
+    }
+  }
+
+  // Check for inputs inside label elements
+  const labels = document.querySelectorAll('label');
+  for (const label of labels) {
+    if (label.textContent?.toLowerCase().includes(searchText)) {
+      const input = label.querySelector('input, textarea, select');
+      if (input) return input;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find link by text content
+ */
+function findLinkByText(searchText: string): Element | null {
+  const links = document.querySelectorAll('a');
+
+  for (const link of links) {
+    const text = link.innerText?.toLowerCase() || '';
+    const ariaLabel = link.getAttribute('aria-label')?.toLowerCase() || '';
+    const title = link.getAttribute('title')?.toLowerCase() || '';
+
+    if (text.includes(searchText) || ariaLabel.includes(searchText) || title.includes(searchText)) {
+      return link;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find button by text content
+ */
+function findButtonByText(searchText: string): Element | null {
+  const buttons = document.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"]');
+
+  for (const button of buttons) {
+    const text = (button as HTMLElement).innerText?.toLowerCase() || '';
+    const ariaLabel = button.getAttribute('aria-label')?.toLowerCase() || '';
+    const title = button.getAttribute('title')?.toLowerCase() || '';
+    const value = (button as HTMLInputElement).value?.toLowerCase() || '';
+
+    if (
+      text.includes(searchText) ||
+      ariaLabel.includes(searchText) ||
+      title.includes(searchText) ||
+      value.includes(searchText)
+    ) {
+      return button;
+    }
+  }
+
+  return null;
 }

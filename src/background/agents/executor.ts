@@ -88,6 +88,25 @@ export class Executor {
 
       try {
         this.context.plan = await this.planner.createPlan(task);
+
+        // Validate plan structure
+        const steps = this.context.plan?.plan?.steps;
+        if (!steps || !Array.isArray(steps) || steps.length === 0) {
+          console.warn('[Executor] Plan missing steps, using fallback');
+          // Create a minimal fallback plan
+          this.context.plan = {
+            current_state: {
+              analysis: 'Task analysis',
+              memory: [],
+            },
+            plan: {
+              thought: 'Executing task directly',
+              steps: ['Analyze the current page', 'Complete the requested task'],
+              success_criteria: 'Task completed successfully',
+            },
+          };
+        }
+
         this.emit({ type: 'PLAN_COMPLETE', plan: this.context.plan.plan.steps });
         console.log('[Executor] Plan created:', this.context.plan.plan.steps);
       } catch (error) {
