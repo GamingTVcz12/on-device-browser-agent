@@ -2,6 +2,10 @@
 
 A Chrome extension that uses WebLLM to run AI-powered web automation entirely on-device. No cloud APIs, no API keys, fully private.
 
+## Demo
+
+https://github.com/RunanywhereAI/on-device-browser-agent/raw/master/assets/demo.mp4
+
 ## Features
 
 - **On-Device AI**: Uses WebLLM with WebGPU acceleration for local LLM inference
