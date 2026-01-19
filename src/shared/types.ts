@@ -43,14 +43,15 @@ export interface NavigatorOutput {
  * Supported browser actions
  */
 export type ActionType =
-  | 'navigate'   // Go to URL
-  | 'click'      // Click element by selector
-  | 'type'       // Type text into input
-  | 'extract'    // Extract text content
-  | 'scroll'     // Scroll page
-  | 'wait'       // Wait for element/time
-  | 'done'       // Task complete
-  | 'fail';      // Task failed
+  | 'navigate'     // Go to URL
+  | 'click'        // Click element by selector
+  | 'type'         // Type text into input
+  | 'press_enter'  // Press Enter key on element (for form submission)
+  | 'extract'      // Extract text content
+  | 'scroll'       // Scroll page
+  | 'wait'         // Wait for element/time
+  | 'done'         // Task complete
+  | 'fail';        // Task failed
 
 /**
  * Result of executing a browser action
@@ -73,7 +74,37 @@ export interface DOMState {
   title: string;
   interactiveElements: InteractiveElement[];
   pageText: string; // Truncated visible text content
+  // Enhanced fields for Amazon
+  pageState?: AmazonPageState;
+  cartCount?: number;
+  alerts?: string[]; // Error messages, notifications on page
+  // VLM integration
+  screenshot?: string; // base64 jpeg for VLM analysis
+  visionAnalysis?: string; // VLM's description of the page
 }
+
+/**
+ * Detected Amazon page state
+ */
+export type AmazonPageState =
+  | 'homepage'
+  | 'search_results'
+  | 'product_page'
+  | 'cart'
+  | 'checkout'
+  | 'signin'
+  | 'captcha'
+  | 'unknown';
+
+/**
+ * Obstacle types that can block task execution
+ */
+export type ObstacleType =
+  | 'LOGIN_REQUIRED'
+  | 'CAPTCHA'
+  | 'OUT_OF_STOCK'
+  | 'PRICE_CHANGED'
+  | 'ERROR';
 
 /**
  * An interactive element on the page
@@ -134,7 +165,12 @@ export interface AgentStep {
 
 export interface StartTaskMessage {
   type: 'START_TASK';
-  payload: { task: string; modelId?: string };
+  payload: {
+    task: string;
+    modelId?: string;
+    visionMode?: boolean;
+    vlmModelId?: string;
+  };
 }
 
 export interface CancelTaskMessage {
@@ -181,4 +217,10 @@ export type ExecutorEvent =
   | { type: 'VISION_ANALYSIS_COMPLETE' }
   | { type: 'TASK_COMPLETE'; result: string }
   | { type: 'TASK_FAILED'; error: string }
-  | { type: 'REPLAN'; reason: string };
+  | { type: 'REPLAN'; reason: string }
+  // Obstacle handling events
+  | { type: 'OBSTACLE_DETECTED'; obstacle: ObstacleType; message: string }
+  | { type: 'WAITING_FOR_USER'; message: string }
+  | { type: 'USER_ACTION_REQUIRED'; action: 'LOGIN' | 'SOLVE_CAPTCHA' | 'CONFIRM' }
+  | { type: 'TASK_PAUSED'; reason: string }
+  | { type: 'TASK_RESUMED' };

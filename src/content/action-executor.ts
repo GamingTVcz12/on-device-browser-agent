@@ -4,10 +4,39 @@
  * Executes browser actions in the page context.
  * Supports: click, type, extract, scroll, wait
  * (Navigate is handled by the service worker)
+ *
+ * Enhanced features:
+ * - Wait for elements with retries
+ * - Overlay/modal dismissal
+ * - Click verification
+ * - Amazon-specific handling
  */
 
 import type { ActionResult, ActionType } from '../shared/types';
 import { TYPING_DELAY, DEFAULT_WAIT_TIMEOUT } from '../shared/constants';
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+const MAX_CLICK_RETRIES = 3;
+const CLICK_RETRY_DELAY = 500;
+const OVERLAY_DISMISS_SELECTORS = [
+  // Cookie banners
+  '[id*="cookie"] button[id*="accept"]',
+  '[class*="cookie"] button[class*="accept"]',
+  '[id*="consent"] button',
+  // Generic modals
+  '[class*="modal"] button[class*="close"]',
+  '[class*="dialog"] button[class*="close"]',
+  '[role="dialog"] button[aria-label*="close"]',
+  '[role="dialog"] button[aria-label*="Close"]',
+  // Amazon-specific
+  '#sp-cc-accept', // Amazon cookie consent
+  '[data-action="sp-cc-accept"]',
+  '.a-modal-close',
+  '#nav-main .nav-a[data-nav-ref="nav_ya_signin"]', // Sign in prompt
+];
 
 // ============================================================================
 // Main Executor
@@ -29,6 +58,9 @@ export async function executeAction(
 
       case 'type':
         return await executeType(params.selector, params.text);
+
+      case 'press_enter':
+        return await executePressEnter(params.selector);
 
       case 'extract':
         return await executeExtract(params.selector);
@@ -57,57 +89,202 @@ export async function executeAction(
 }
 
 // ============================================================================
+// Enhanced Helper Functions
+// ============================================================================
+
+/**
+ * Wait for an element to appear in the DOM
+ */
+async function waitForElement(selector: string, timeout: number = 5000): Promise<Element | null> {
+  const startTime = Date.now();
+  const pollInterval = 100;
+
+  while (Date.now() - startTime < timeout) {
+    const element = resolveSelector(selector);
+    if (element && isElementReady(element as HTMLElement)) {
+      return element;
+    }
+    await sleep(pollInterval);
+  }
+
+  return null;
+}
+
+/**
+ * Check if an element is ready for interaction (visible, not covered)
+ */
+function isElementReady(element: HTMLElement): boolean {
+  if (!element) return false;
+
+  const style = window.getComputedStyle(element);
+  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+    return false;
+  }
+
+  const rect = element.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Check if an element is covered by another element (e.g., overlay)
+ */
+function isElementCovered(element: HTMLElement): boolean {
+  const rect = element.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+
+  const topElement = document.elementFromPoint(centerX, centerY);
+
+  if (!topElement) return true;
+  if (topElement === element) return false;
+  if (element.contains(topElement)) return false;
+
+  return true;
+}
+
+/**
+ * Attempt to dismiss overlays/modals that might block interaction
+ */
+async function dismissOverlays(): Promise<boolean> {
+  let dismissed = false;
+
+  for (const selector of OVERLAY_DISMISS_SELECTORS) {
+    try {
+      const element = document.querySelector(selector);
+      if (element && element instanceof HTMLElement && isElementReady(element)) {
+        element.click();
+        dismissed = true;
+        await sleep(300);
+      }
+    } catch {
+      // Ignore errors from specific selectors
+    }
+  }
+
+  // Also try to find and close any visible modal by looking for close buttons
+  const closeButtons = document.querySelectorAll(
+    'button[aria-label*="close"], button[aria-label*="Close"], ' +
+    'button.close, .modal-close, [data-dismiss="modal"]'
+  );
+
+  for (const btn of closeButtons) {
+    if (btn instanceof HTMLElement && isElementReady(btn)) {
+      const modal = btn.closest('[role="dialog"], .modal, [class*="modal"]');
+      if (modal) {
+        btn.click();
+        dismissed = true;
+        await sleep(300);
+        break;
+      }
+    }
+  }
+
+  return dismissed;
+}
+
+// ============================================================================
 // Action Implementations
 // ============================================================================
 
 /**
- * Click an element by selector
+ * Click an element by selector with retry logic
  */
 async function executeClick(selector: string): Promise<ActionResult> {
-  const element = resolveSelector(selector);
+  let lastError: string = '';
 
-  if (!element) {
-    return { success: false, error: `Element not found: ${selector}` };
-  }
-
-  if (!(element instanceof HTMLElement)) {
-    return { success: false, error: `Element is not interactive: ${selector}` };
-  }
-
-  // Scroll element into view
-  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  await sleep(300);
-
-  // Focus the element
-  element.focus();
-
-  // Dispatch click events
-  const clickEvent = new MouseEvent('click', {
-    bubbles: true,
-    cancelable: true,
-    view: window,
-  });
-  element.dispatchEvent(clickEvent);
-
-  // Also try native click for buttons/links
-  if (typeof element.click === 'function') {
-    element.click();
-  }
-
-  // Check if it was a link that should navigate
-  if (element instanceof HTMLAnchorElement && element.href) {
-    return { success: true, data: `Clicked link to: ${element.href}` };
-  }
-
-  // Check if it was a submit button
-  if (element instanceof HTMLButtonElement && element.type === 'submit') {
-    const form = element.closest('form');
-    if (form) {
-      return { success: true, data: 'Clicked submit button' };
+  for (let attempt = 0; attempt < MAX_CLICK_RETRIES; attempt++) {
+    // First, try to dismiss any overlays
+    if (attempt > 0) {
+      await dismissOverlays();
+      await sleep(CLICK_RETRY_DELAY);
     }
+
+    const element = resolveSelector(selector);
+
+    if (!element) {
+      // Wait for element to appear
+      const waited = await waitForElement(selector, 2000);
+      if (!waited) {
+        lastError = `Element not found: ${selector}`;
+        continue;
+      }
+    }
+
+    const el = (element || await waitForElement(selector, 1000)) as HTMLElement;
+    if (!el) {
+      lastError = `Element not found after waiting: ${selector}`;
+      continue;
+    }
+
+    if (!(el instanceof HTMLElement)) {
+      lastError = `Element is not interactive: ${selector}`;
+      continue;
+    }
+
+    // Check if element is covered
+    if (isElementCovered(el)) {
+      console.log(`[Content] Element covered, attempting to dismiss overlays (attempt ${attempt + 1})`);
+      await dismissOverlays();
+      await sleep(300);
+
+      if (isElementCovered(el)) {
+        lastError = `Element is covered by another element: ${selector}`;
+        continue;
+      }
+    }
+
+    // Scroll element into view
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await sleep(300);
+
+    // Focus the element
+    el.focus();
+
+    // Dispatch click events
+    const clickEvent = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+    });
+    el.dispatchEvent(clickEvent);
+
+    // Also try native click for buttons/links
+    if (typeof el.click === 'function') {
+      el.click();
+    }
+
+    // Check if it was a link that should navigate
+    if (el instanceof HTMLAnchorElement && el.href && !el.href.startsWith('javascript:')) {
+      const targetHref = el.href;
+
+      // Give click a moment to work (some sites use JS navigation)
+      await sleep(300);
+
+      // If still on same page and no target, force navigation
+      if (window.location.href !== targetHref && !el.target) {
+        console.log(`[Content] Click didn't navigate, forcing navigation to: ${targetHref}`);
+        window.location.href = targetHref;
+      }
+
+      return { success: true, data: `Navigating to: ${targetHref}` };
+    }
+
+    // Check if it was a submit button
+    if (el instanceof HTMLButtonElement && el.type === 'submit') {
+      const form = el.closest('form');
+      if (form) {
+        return { success: true, data: 'Clicked submit button' };
+      }
+    }
+
+    return { success: true, data: `Clicked element: ${selector}` };
   }
 
-  return { success: true, data: `Clicked element: ${selector}` };
+  return { success: false, error: lastError || `Failed to click: ${selector}` };
 }
 
 /**
@@ -168,6 +345,95 @@ async function executeType(selector: string, text: string): Promise<ActionResult
   }
 
   return { success: true, data: `Typed "${text}" into ${selector}` };
+}
+
+/**
+ * Press Enter key on an element (for submitting forms/search)
+ */
+async function executePressEnter(selector: string): Promise<ActionResult> {
+  const element = resolveSelector(selector);
+
+  if (!element) {
+    // If no selector, try to find focused input
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement)) {
+      return pressEnterOn(activeEl);
+    }
+    return { success: false, error: `Element not found: ${selector}` };
+  }
+
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    return pressEnterOn(element);
+  }
+
+  // Try to find input within element
+  const input = element.querySelector('input, textarea');
+  if (input && (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+    return pressEnterOn(input);
+  }
+
+  return { success: false, error: `Element is not an input: ${selector}` };
+}
+
+async function pressEnterOn(element: HTMLInputElement | HTMLTextAreaElement): Promise<ActionResult> {
+  element.focus();
+  await sleep(100);
+
+  // Dispatch keydown event for Enter
+  const keydownEvent = new KeyboardEvent('keydown', {
+    key: 'Enter',
+    code: 'Enter',
+    keyCode: 13,
+    which: 13,
+    bubbles: true,
+    cancelable: true,
+  });
+  element.dispatchEvent(keydownEvent);
+
+  // Dispatch keypress event
+  const keypressEvent = new KeyboardEvent('keypress', {
+    key: 'Enter',
+    code: 'Enter',
+    keyCode: 13,
+    which: 13,
+    bubbles: true,
+    cancelable: true,
+  });
+  element.dispatchEvent(keypressEvent);
+
+  // Dispatch keyup event
+  const keyupEvent = new KeyboardEvent('keyup', {
+    key: 'Enter',
+    code: 'Enter',
+    keyCode: 13,
+    which: 13,
+    bubbles: true,
+    cancelable: true,
+  });
+  element.dispatchEvent(keyupEvent);
+
+  // If element is in a form, try to submit the form
+  const form = element.closest('form');
+  if (form) {
+    // Try to find and click submit button
+    const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
+    if (submitBtn && submitBtn instanceof HTMLElement) {
+      await sleep(100);
+      submitBtn.click();
+      return { success: true, data: 'Pressed Enter and submitted form' };
+    }
+
+    // Otherwise submit form directly
+    try {
+      form.requestSubmit();
+      return { success: true, data: 'Pressed Enter and submitted form' };
+    } catch {
+      form.submit();
+      return { success: true, data: 'Pressed Enter and submitted form' };
+    }
+  }
+
+  return { success: true, data: 'Pressed Enter key' };
 }
 
 /**

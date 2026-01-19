@@ -25,7 +25,12 @@ export interface Step {
   error?: string;
 }
 
-type AppState = 'idle' | 'loading' | 'planning' | 'executing' | 'complete' | 'error';
+type AppState = 'idle' | 'loading' | 'planning' | 'executing' | 'paused' | 'complete' | 'error';
+
+interface ObstacleInfo {
+  type: string;
+  message: string;
+}
 
 // ============================================================================
 // App Component
@@ -40,6 +45,7 @@ export function App(): React.ReactElement {
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [port, setPort] = useState<chrome.runtime.Port | null>(null);
+  const [obstacle, setObstacle] = useState<ObstacleInfo | null>(null);
 
   // Connect to background service worker
   useEffect(() => {
@@ -197,12 +203,35 @@ export function App(): React.ReactElement {
         setError(event.error);
         setState('error');
         break;
+
+      // Obstacle handling events
+      case 'OBSTACLE_DETECTED':
+        setObstacle({
+          type: event.obstacle,
+          message: event.message,
+        });
+        break;
+
+      case 'TASK_PAUSED':
+        setState('paused');
+        break;
+
+      case 'TASK_RESUMED':
+        setObstacle(null);
+        setState('executing');
+        break;
+
+      case 'USER_ACTION_REQUIRED':
+        // Additional UI hint could be shown here
+        break;
     }
   }, []);
 
   // Submit a new task
   const handleSubmitTask = useCallback(
-    (task: string, modelId: string) => {
+    (task: string, modelId: string, visionMode: boolean, vlmModelId: string) => {
+      const payload = { task, modelId, visionMode, vlmModelId };
+
       // Try to reconnect if port is disconnected
       if (!port) {
         console.log('[Popup] Port disconnected, attempting to reconnect...');
@@ -237,7 +266,7 @@ export function App(): React.ReactElement {
           setResult(null);
           setError(null);
 
-          newPort.postMessage({ type: 'START_TASK', payload: { task, modelId } });
+          newPort.postMessage({ type: 'START_TASK', payload });
           return;
         } catch (err) {
           console.error('[Popup] Reconnection failed:', err);
@@ -256,7 +285,7 @@ export function App(): React.ReactElement {
       setError(null);
 
       // Send task to background
-      port.postMessage({ type: 'START_TASK', payload: { task, modelId } });
+      port.postMessage({ type: 'START_TASK', payload });
     },
     [port, handleExecutorEvent]
   );
@@ -272,6 +301,15 @@ export function App(): React.ReactElement {
     }
   }, [port]);
 
+  // Resume a paused task
+  const handleResume = useCallback(() => {
+    if (port) {
+      port.postMessage({ type: 'RESUME_TASK' });
+      setObstacle(null);
+      setState('executing');
+    }
+  }, [port]);
+
   // Reset to initial state
   const handleReset = useCallback(() => {
     setState('idle');
@@ -280,6 +318,7 @@ export function App(): React.ReactElement {
     setSteps([]);
     setResult(null);
     setError(null);
+    setObstacle(null);
   }, []);
 
   return (
@@ -308,6 +347,33 @@ export function App(): React.ReactElement {
               Stop Task
             </button>
           </>
+        )}
+
+        {state === 'paused' && obstacle && (
+          <div className="paused-view">
+            <div className="obstacle-icon">
+              {obstacle.type === 'LOGIN_REQUIRED' && '🔐'}
+              {obstacle.type === 'CAPTCHA' && '🤖'}
+              {obstacle.type === 'OUT_OF_STOCK' && '📦'}
+              {obstacle.type === 'ERROR' && '⚠️'}
+            </div>
+            <h2>Action Required</h2>
+            <div className="obstacle-message">
+              {obstacle.type === 'LOGIN_REQUIRED' && 'Please sign in to your account in the browser tab.'}
+              {obstacle.type === 'CAPTCHA' && 'Please solve the CAPTCHA in the browser tab.'}
+              {obstacle.type === 'OUT_OF_STOCK' && 'This item is out of stock.'}
+              {obstacle.type === 'ERROR' && obstacle.message}
+            </div>
+            <div className="paused-actions">
+              <button className="resume-button" onClick={handleResume}>
+                Resume Task
+              </button>
+              <button className="stop-button" onClick={handleCancel}>
+                Cancel
+              </button>
+            </div>
+            <ProgressDisplay state="executing" plan={plan} steps={steps} />
+          </div>
         )}
 
         {state === 'complete' && result && (

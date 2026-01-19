@@ -16,38 +16,15 @@ import type { PlannerOutput, AgentContext } from '../../shared/types';
 // ============================================================================
 
 export class PlannerAgent extends BaseAgent<PlannerOutput> {
-  protected systemPrompt = `You are a strategic planning agent for web automation tasks.
+  protected systemPrompt = `You are a web automation planner. Create step-by-step plans for browser tasks.
 
-Your role is to:
-1. Analyze the user's task and break it into clear, actionable steps
-2. Consider what information you might encounter on web pages
-3. Define clear success criteria for task completion
+Example plans:
+- AMAZON SHOPPING: 1) Navigate to amazon.com 2) Type search query 3) Press enter 4) Click first product 5) Click Add to Cart 6) Done
+- GOOGLE SEARCH: 1) Navigate to google.com 2) Type search query 3) Press enter 4) Click result 5) Done
 
-You understand common web navigation patterns:
-- Search engines (Google, Bing, DuckDuckGo) have search boxes and result links
-- Wikipedia has a search box, article content, and navigation sidebar
-- Most sites have navigation menus, buttons, and form inputs
-- Forms typically have labeled input fields and submit buttons
-- Pages may have pagination, popups, modals, or dynamic content
-- Content is often in main/article elements or divs with class names like "content"
+Create 3-6 clear steps. Be specific about what to click/type.`;
 
-General guidance:
-- Be specific about what actions need to be taken
-- Don't assume exact page structures - describe what to look for
-- Consider alternative approaches if the primary one fails
-- Keep steps atomic and verifiable`;
-
-  protected outputSchema = `{
-  "current_state": {
-    "analysis": "string - Your analysis of the task requirements and challenges",
-    "memory": ["string - Key facts to remember during execution"]
-  },
-  "plan": {
-    "thought": "string - Your strategic reasoning about how to approach this task",
-    "steps": ["string - Ordered list of high-level steps to accomplish the task"],
-    "success_criteria": "string - How to determine when the task is complete"
-  }
-}`;
+  protected outputSchema = `{"current_state":{"analysis":"User wants to buy toilet paper from Amazon","memory":["Need to search Amazon","Add item to cart"]},"plan":{"thought":"Standard Amazon shopping flow","steps":["Navigate to amazon.com","Type toilet paper in search box","Press enter to search","Click first product result","Click Add to Cart button","Report success"],"success_criteria":"Item added to cart"}}`;
 
   constructor() {
     super('Planner');

@@ -32,14 +32,18 @@ chrome.runtime.onConnect.addListener((port) => {
   console.log('[Background] Popup connected');
   activePort = port;
 
-  port.onMessage.addListener(async (message: BackgroundMessage) => {
+  port.onMessage.addListener(async (message: BackgroundMessage & { type: string }) => {
     console.log('[Background] Received message:', message.type);
 
     if (message.type === 'START_TASK') {
-      await handleStartTask(message.payload.task, port, message.payload.modelId);
+      const { task, modelId, visionMode, vlmModelId } = message.payload;
+      await handleStartTask(task, port, modelId, visionMode, vlmModelId);
     } else if (message.type === 'CANCEL_TASK') {
       executor.cancel();
       visionExecutor.cancel();
+    } else if (message.type === 'RESUME_TASK') {
+      console.log('[Background] Resuming task');
+      executor.resume();
     }
   });
 
@@ -56,7 +60,9 @@ chrome.runtime.onConnect.addListener((port) => {
 async function handleStartTask(
   task: string,
   port: chrome.runtime.Port,
-  modelId?: string
+  modelId?: string,
+  visionMode?: boolean,
+  vlmModelId?: string
 ): Promise<void> {
   // Get the active tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -77,27 +83,45 @@ async function handleStartTask(
     }
   };
 
-  // Set up event forwarding
-  const unsubscribe = executor.onEvent(handleEvent);
-
   try {
-    console.log('[Background] Starting task with model:', modelId || 'default');
+    if (visionMode) {
+      // Use vision executor for screenshot-based navigation
+      console.log('[Background] Starting vision task with VLM:', vlmModelId || 'small');
+      const unsubscribe = visionExecutor.onEvent(handleEvent);
 
-    // Use standard executor for DOM-based navigation
-    const result = await executor.executeTask(
-      task,
-      () => getDOMState(currentTabId!),
-      (actionType, params) => executeAction(currentTabId!, actionType, params),
-      modelId
-    );
+      try {
+        const result = await visionExecutor.executeTask(
+          task,
+          currentTabId!,
+          (actionType, params) => executeAction(currentTabId!, actionType, params),
+          vlmModelId
+        );
+        port.postMessage({ type: 'TASK_RESULT', result });
+      } finally {
+        unsubscribe();
+      }
+    } else {
+      // Use standard executor for DOM-based navigation
+      console.log('[Background] Starting task with LLM:', modelId || 'default');
+      const unsubscribe = executor.onEvent(handleEvent);
 
-    port.postMessage({ type: 'TASK_RESULT', result });
+      try {
+        const result = await executor.executeTask(
+          task,
+          () => getDOMStateWithScreenshot(currentTabId!),
+          (actionType, params) => executeAction(currentTabId!, actionType, params),
+          modelId
+        );
+        port.postMessage({ type: 'TASK_RESULT', result });
+      } finally {
+        unsubscribe();
+      }
+    }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error('[Background] Task failed:', errorMsg);
     port.postMessage({ type: 'ERROR', error: errorMsg });
   } finally {
-    unsubscribe();
     currentTabId = null;
   }
 }
@@ -107,35 +131,77 @@ async function handleStartTask(
 // ============================================================================
 
 async function getDOMState(tabId: number): Promise<DOMState> {
-  try {
-    // First, try to inject the content script if it's not already loaded
-    await ensureContentScriptLoaded(tabId);
+  const maxRetries = 5;
+  const retryDelay = 500;
 
-    // Use message passing to get DOM state
-    return new Promise((resolve, reject) => {
-      chrome.tabs.sendMessage(tabId, { type: 'GET_DOM_STATE' }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('[Background] Failed to get DOM state:', chrome.runtime.lastError.message);
-          // Return minimal state on error
-          resolve({
-            url: 'unknown',
-            title: 'Error loading page state',
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Check if content script is available
+      const isReady = await waitForContentScript(tabId, attempt === 0 ? 2000 : 500);
+
+      if (!isReady) {
+        // Get tab info to check if it's a restricted page
+        const tab = await chrome.tabs.get(tabId);
+        const tabUrl = tab.url || 'unknown';
+
+        const isRestricted = tabUrl.startsWith('chrome://') ||
+                            tabUrl.startsWith('chrome-extension://') ||
+                            tabUrl.startsWith('about:') ||
+                            tabUrl === 'chrome://newtab/';
+
+        if (isRestricted) {
+          return {
+            url: tabUrl,
+            title: tab.title || 'Restricted Page',
             interactiveElements: [],
-            pageText: '',
-          });
-          return;
+            pageText: 'RESTRICTED PAGE: Cannot interact with this page. Use "navigate" action to go to a website first (e.g., navigate to https://google.com).',
+          };
         }
 
-        if (response?.success && response.data) {
-          resolve(response.data);
-        } else {
-          reject(new Error(response?.error || 'Failed to get DOM state'));
+        // Not restricted but content script not ready - wait and retry
+        if (attempt < maxRetries - 1) {
+          console.log(`[Background] Content script not ready, retrying (${attempt + 1}/${maxRetries})...`);
+          await sleep(retryDelay);
+          continue;
         }
+      }
+
+      // Try to get DOM state
+      const result = await new Promise<DOMState>((resolve, reject) => {
+        chrome.tabs.sendMessage(tabId, { type: 'GET_DOM_STATE' }, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+
+          if (response?.success && response.data) {
+            resolve(response.data);
+          } else {
+            reject(new Error(response?.error || 'Failed to get DOM state'));
+          }
+        });
       });
-    });
-  } catch (error) {
-    console.error('[Background] Error getting DOM state:', error);
-    // Return minimal state
+
+      return result;
+    } catch (error) {
+      console.error(`[Background] getDOMState attempt ${attempt + 1} failed:`, error);
+
+      if (attempt < maxRetries - 1) {
+        await sleep(retryDelay);
+      }
+    }
+  }
+
+  // All retries failed - return error state with actual tab info
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return {
+      url: tab.url || 'unknown',
+      title: tab.title || 'Error loading page',
+      interactiveElements: [],
+      pageText: 'ERROR: Could not communicate with page. The page may still be loading or may have blocked the extension.',
+    };
+  } catch {
     return {
       url: 'unknown',
       title: 'Error loading page state',
@@ -192,10 +258,21 @@ async function executeNavigation(tabId: number, url: string): Promise<ActionResu
       targetUrl = 'https://' + targetUrl;
     }
 
+    console.log('[Background] Navigating to:', targetUrl);
     await chrome.tabs.update(tabId, { url: targetUrl });
     await waitForTabLoad(tabId);
 
-    return { success: true, data: `Navigated to ${targetUrl}` };
+    // Wait for content script to become available after navigation
+    console.log('[Background] Waiting for content script after navigation...');
+    const isReady = await waitForContentScript(tabId, 3000);
+
+    if (isReady) {
+      console.log('[Background] Content script ready after navigation');
+      return { success: true, data: `Navigated to ${targetUrl}` };
+    } else {
+      console.warn('[Background] Content script not ready after navigation, but page loaded');
+      return { success: true, data: `Navigated to ${targetUrl} (content script may still be loading)` };
+    }
   } catch (error) {
     return {
       success: false,
@@ -208,32 +285,50 @@ async function executeNavigation(tabId: number, url: string): Promise<ActionResu
 // Helper Functions
 // ============================================================================
 
-async function ensureContentScriptLoaded(tabId: number): Promise<void> {
-  try {
-    // Try to ping the content script
-    await new Promise<void>((resolve, reject) => {
-      chrome.tabs.sendMessage(tabId, { type: 'PING' }, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error('Content script not loaded'));
-        } else if (response?.ok) {
-          resolve();
-        } else {
-          reject(new Error('Invalid response'));
-        }
+/**
+ * Wait for content script to become available with timeout
+ * Returns true if content script is ready, false otherwise
+ */
+async function waitForContentScript(tabId: number, timeout: number = 2000): Promise<boolean> {
+  const startTime = Date.now();
+  const pollInterval = 100;
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const isReady = await new Promise<boolean>((resolve) => {
+        const timeoutId = setTimeout(() => resolve(false), pollInterval);
+
+        chrome.tabs.sendMessage(tabId, { type: 'PING' }, (response) => {
+          clearTimeout(timeoutId);
+          if (chrome.runtime.lastError) {
+            resolve(false);
+          } else {
+            resolve(response?.ok === true);
+          }
+        });
       });
 
-      // Timeout after 500ms
-      setTimeout(() => reject(new Error('Timeout')), 500);
-    });
-  } catch {
-    // Content script not loaded - this can happen on restricted pages (chrome://, extension pages)
-    // or if the page hasn't finished loading yet. The manifest.json declares content scripts
-    // to be injected on all URLs, so if we can't reach it, the page likely doesn't support
-    // content script injection.
-    console.warn('[Background] Content script not available in tab', tabId);
-    console.warn('[Background] This may be a restricted page (chrome://, extension, etc.)');
-    // Continue anyway - the caller will handle the error when trying to communicate
+      if (isReady) {
+        return true;
+      }
+
+      await sleep(pollInterval);
+    } catch {
+      await sleep(pollInterval);
+    }
   }
+
+  return false;
+}
+
+async function ensureContentScriptLoaded(tabId: number): Promise<boolean> {
+  const isReady = await waitForContentScript(tabId, 1000);
+
+  if (!isReady) {
+    console.warn('[Background] Content script not available in tab', tabId);
+  }
+
+  return isReady;
 }
 
 function waitForTabLoad(tabId: number): Promise<void> {
@@ -267,6 +362,49 @@ function waitForTabLoad(tabId: number): Promise<void> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Capture screenshot of the visible tab
+ * Returns base64 jpeg data URL or undefined if capture fails
+ */
+async function captureScreenshot(tabId: number): Promise<string | undefined> {
+  try {
+    // Get the window ID for this tab
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.windowId) {
+      console.warn('[Background] No window ID for tab');
+      return undefined;
+    }
+
+    // Capture the visible tab as jpeg (smaller than png)
+    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+      format: 'jpeg',
+      quality: 60, // Lower quality for smaller size
+    });
+
+    console.log('[Background] Screenshot captured, size:', Math.round(dataUrl.length / 1024), 'KB');
+    return dataUrl;
+  } catch (error) {
+    console.warn('[Background] Failed to capture screenshot:', error);
+    return undefined;
+  }
+}
+
+/**
+ * Get DOM state with optional screenshot for VLM analysis
+ */
+export async function getDOMStateWithScreenshot(tabId: number): Promise<DOMState> {
+  // Get base DOM state
+  const domState = await getDOMState(tabId);
+
+  // Capture screenshot
+  const screenshot = await captureScreenshot(tabId);
+  if (screenshot) {
+    domState.screenshot = screenshot;
+  }
+
+  return domState;
 }
 
 // ============================================================================

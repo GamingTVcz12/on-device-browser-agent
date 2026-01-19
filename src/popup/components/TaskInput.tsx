@@ -5,10 +5,10 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { AVAILABLE_MODELS, DEFAULT_MODEL } from '../../shared/constants';
+import { AVAILABLE_LLM_MODELS, DEFAULT_MODEL } from '../../shared/constants';
 
 interface TaskInputProps {
-  onSubmit: (task: string, modelId: string) => void;
+  onSubmit: (task: string, modelId: string, visionMode: boolean, vlmModelId: string) => void;
 }
 
 const EXAMPLE_TASKS = [
@@ -25,7 +25,8 @@ export function TaskInput({ onSubmit }: TaskInputProps): React.ReactElement {
     (e: React.FormEvent) => {
       e.preventDefault();
       if (task.trim()) {
-        onSubmit(task.trim(), modelId);
+        // Vision mode disabled - always pass false
+        onSubmit(task.trim(), modelId, false, 'small');
       }
     },
     [task, modelId, onSubmit]
@@ -44,19 +45,35 @@ export function TaskInput({ onSubmit }: TaskInputProps): React.ReactElement {
         autoFocus
       />
 
-      <div className="model-select">
-        <label htmlFor="model-select">Model:</label>
-        <select
-          id="model-select"
-          value={modelId}
-          onChange={(e) => setModelId(e.target.value)}
-        >
-          {AVAILABLE_MODELS.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.name} ({model.size})
-            </option>
-          ))}
-        </select>
+      <div className="model-settings">
+        <div className="model-select">
+          <label htmlFor="llm-select">LLM:</label>
+          <select
+            id="llm-select"
+            value={modelId}
+            onChange={(e) => setModelId(e.target.value)}
+          >
+            {AVAILABLE_LLM_MODELS.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name} - {model.size} ({model.context} ctx)
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="vision-toggle">
+          <label className="vision-disabled">
+            <input
+              type="checkbox"
+              checked={false}
+              disabled
+            />
+            Vision Mode
+          </label>
+          <span className="vision-badge vision-unavailable" title="Vision mode unavailable: Chrome MV3 blocks required CDN imports for Transformers.js">
+            N/A
+          </span>
+        </div>
       </div>
 
       <button type="submit" disabled={!task.trim()}>

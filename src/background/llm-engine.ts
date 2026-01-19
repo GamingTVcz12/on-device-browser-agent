@@ -80,12 +80,26 @@ class LLMEngineManager {
   private progressCallbacks: Set<ProgressCallback> = new Set();
   private initializationPromise: Promise<void> | null = null;
 
+  private initResolvers: Map<string, { resolve: () => void; reject: (e: Error) => void }> = new Map();
+
   constructor() {
-    // Listen for progress updates from offscreen document
+    // Listen for progress and completion from offscreen document
     chrome.runtime.onMessage.addListener((message) => {
       if (message.type === 'LLM_PROGRESS') {
         this.state.loadProgress = message.progress;
         this.notifyProgress(message.progress);
+      }
+
+      if (message.type === 'LLM_INIT_COMPLETE') {
+        const resolver = this.initResolvers.get(this.state.currentModel || '');
+        if (resolver) {
+          if (message.success) {
+            resolver.resolve();
+          } else {
+            resolver.reject(new Error(message.error || 'Init failed'));
+          }
+          this.initResolvers.delete(this.state.currentModel || '');
+        }
       }
     });
   }
@@ -95,6 +109,7 @@ class LLMEngineManager {
    */
   async initialize(modelId?: string): Promise<void> {
     const targetModel = modelId || DEFAULT_MODEL;
+    console.log(`[LLM Engine] initialize called with: ${targetModel}, current: ${this.state.currentModel}, ready: ${this.state.ready}`);
 
     // If already initialized with the same model, skip
     if (this.state.ready && this.state.currentModel === targetModel) {
@@ -102,48 +117,70 @@ class LLMEngineManager {
       return;
     }
 
-    // If currently initializing the same model, wait for it
-    if (this.initializationPromise && this.state.currentModel === targetModel) {
-      return this.initializationPromise;
+    // If currently initializing, wait for it
+    if (this.initializationPromise) {
+      console.log(`[LLM Engine] Waiting for current initialization...`);
+      try {
+        await this.initializationPromise;
+      } catch {
+        // Previous init failed, continue to reinitialize
+      }
+      // Check again after waiting
+      if (this.state.ready && this.state.currentModel === targetModel) {
+        return;
+      }
     }
 
-    // Reset if switching to a different model
-    if (this.state.currentModel && this.state.currentModel !== targetModel) {
-      console.log(`[LLM Engine] Switching model from ${this.state.currentModel} to ${targetModel}`);
-      await this.reset();
-    }
+    // Reset state for new initialization
+    console.log(`[LLM Engine] Starting fresh initialization for ${targetModel}`);
+    this.state = {
+      isLoading: true,
+      loadProgress: 0,
+      currentModel: targetModel,
+      error: null,
+      ready: false,
+    };
 
     this.initializationPromise = this.doInitialize(targetModel);
     return this.initializationPromise;
   }
 
   private async doInitialize(modelId: string): Promise<void> {
-    this.state.isLoading = true;
-    this.state.error = null;
-    this.state.loadProgress = 0;
-    this.state.ready = false;
+    console.log(`[LLM Engine] doInitialize starting for ${modelId}`);
 
     const modelsToTry = [modelId, ...FALLBACK_MODELS.filter((m) => m !== modelId)];
 
     for (const model of modelsToTry) {
       try {
         console.log(`[LLM Engine] Initializing model: ${model}`);
+        this.state.currentModel = model;
 
         // Ensure offscreen document exists
         await ensureOffscreenDocument();
         console.log('[LLM Engine] Offscreen document ready');
 
-        // Send init request to offscreen document
-        const response = await chrome.runtime.sendMessage({
+        // Create promise that resolves when init completes
+        const initPromise = new Promise<void>((resolve, reject) => {
+          this.initResolvers.set(model, { resolve, reject });
+
+          // Timeout after 5 minutes for large models
+          setTimeout(() => {
+            if (this.initResolvers.has(model)) {
+              this.initResolvers.delete(model);
+              reject(new Error('Model initialization timeout'));
+            }
+          }, 300000);
+        });
+
+        // Send init request (returns immediately)
+        await chrome.runtime.sendMessage({
           type: 'INIT_LLM',
           modelId: model,
         });
 
-        if (!response.success) {
-          throw new Error(response.error || 'Unknown error');
-        }
+        // Wait for completion
+        await initPromise;
 
-        this.state.currentModel = model;
         this.state.isLoading = false;
         this.state.loadProgress = 1;
         this.state.ready = true;
@@ -153,6 +190,7 @@ class LLMEngineManager {
         return;
       } catch (error) {
         console.error(`[LLM Engine] Failed to load ${model}:`, error);
+        this.initResolvers.delete(model);
 
         if (model === modelsToTry[modelsToTry.length - 1]) {
           this.state.error = error instanceof Error ? error.message : String(error);
@@ -238,6 +276,15 @@ class LLMEngineManager {
    * Reset the engine state
    */
   async reset(): Promise<void> {
+    console.log('[LLM Engine] Resetting engine');
+
+    // Tell offscreen document to unload model
+    try {
+      await chrome.runtime.sendMessage({ type: 'RESET_LLM' });
+    } catch (e) {
+      console.warn('[LLM Engine] Failed to send RESET_LLM message:', e);
+    }
+
     this.state = {
       isLoading: false,
       loadProgress: 0,
